@@ -255,11 +255,16 @@ public class SpringApplication {
 		this.resourceLoader = resourceLoader;
 		Assert.notNull(primarySources, "PrimarySources must not be null");
 		this.primarySources = new LinkedHashSet<>(Arrays.asList(primarySources));
+		// 这儿去判断应用类型 后面创建对应得应用服务器
+		// 默认是SERVLET
 		this.webApplicationType = WebApplicationType.deduceFromClasspath();
+		// 设置初始化器
 		this.bootstrapRegistryInitializers = new ArrayList<>(
 				getSpringFactoriesInstances(BootstrapRegistryInitializer.class));
 		setInitializers((Collection) getSpringFactoriesInstances(ApplicationContextInitializer.class));
+		// 设置监听器
 		setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class));
+		// 初始化器和监听器得获取 都依赖于getSpringFactoriesInstances 方法
 		this.mainApplicationClass = deduceMainApplicationClass();
 	}
 
@@ -286,26 +291,44 @@ public class SpringApplication {
 	 */
 	public ConfigurableApplicationContext run(String... args) {
 		long startTime = System.nanoTime();
+		// 创建引导类上下文 执行其初始化
 		DefaultBootstrapContext bootstrapContext = createBootstrapContext();
+
 		ConfigurableApplicationContext context = null;
+		// 服务器相关配置
 		configureHeadlessProperty();
+		// 获取SpringApplicationRunListeners监听器 触发事件
 		SpringApplicationRunListeners listeners = getRunListeners(args);
 		listeners.starting(bootstrapContext, this.mainApplicationClass);
+
 		try {
+			// 获取启动配置
 			ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+			// 准备环境 这儿得环境是指系统环境变量得意思
 			ConfigurableEnvironment environment = prepareEnvironment(listeners, bootstrapContext, applicationArguments);
+
 			configureIgnoreBeanInfo(environment);
+			// banner 打印
 			Banner printedBanner = printBanner(environment);
+
+			/**创建上下文 SERVLET 对应得上下文是
+			 * {@link AnnotationConfigServletWebServerApplicationContext}
+			 */
 			context = createApplicationContext();
 			context.setApplicationStartup(this.applicationStartup);
+
 			prepareContext(bootstrapContext, context, environment, listeners, applicationArguments, printedBanner);
+			// 调用Spring得刷新上下文
 			refreshContext(context);
 			afterRefresh(context, applicationArguments);
+
 			Duration timeTakenToStartup = Duration.ofNanos(System.nanoTime() - startTime);
 			if (this.logStartupInfo) {
 				new StartupInfoLogger(this.mainApplicationClass).logStarted(getApplicationLog(), timeTakenToStartup);
 			}
+			// 触发监听器
 			listeners.started(context, timeTakenToStartup);
+
 			callRunners(context, applicationArguments);
 		}
 		catch (Throwable ex) {
@@ -364,7 +387,9 @@ public class SpringApplication {
 			ApplicationArguments applicationArguments, Banner printedBanner) {
 		context.setEnvironment(environment);
 		postProcessApplicationContext(context);
+		// 调用初始化
 		applyInitializers(context);
+		// 监听器
 		listeners.contextPrepared(context);
 		bootstrapContext.close(context);
 		if (this.logStartupInfo) {
@@ -372,6 +397,7 @@ public class SpringApplication {
 			logStartupProfileInfo(context);
 		}
 		// Add boot specific singleton beans
+		// 在 Spring 中 beanFactory 都存放于 DefaultListableBeanFactory
 		ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
 		beanFactory.registerSingleton("springApplicationArguments", applicationArguments);
 		if (printedBanner != null) {
@@ -390,7 +416,9 @@ public class SpringApplication {
 		// Load the sources
 		Set<Object> sources = getAllSources();
 		Assert.notEmpty(sources, "Sources must not be empty");
+		// 加载BeanDefinition
 		load(context, sources.toArray(new Object[0]));
+		// 监听器
 		listeners.contextLoaded(context);
 	}
 
@@ -413,6 +441,7 @@ public class SpringApplication {
 				this.applicationStartup);
 	}
 
+
 	private <T> Collection<T> getSpringFactoriesInstances(Class<T> type) {
 		return getSpringFactoriesInstances(type, new Class<?>[] {});
 	}
@@ -420,7 +449,11 @@ public class SpringApplication {
 	private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] parameterTypes, Object... args) {
 		ClassLoader classLoader = getClassLoader();
 		// Use names and ensure unique to protect against duplicates
+		// 借用Spring core 得SpringFactoriesLoader加载  这儿用factory去命名 不意味着去加载对象工厂
+		// 而是因为是通过META-INF/spring.factories 文件去获取类名称
+		// 关注于spring-boot.jar和spring-boot-auto-configuration.jar得2个spring.factories
 		Set<String> names = new LinkedHashSet<>(SpringFactoriesLoader.loadFactoryNames(type, classLoader));
+		// 通过反射创建实例
 		List<T> instances = createSpringFactoriesInstances(type, parameterTypes, classLoader, args, names);
 		AnnotationAwareOrderComparator.sort(instances);
 		return instances;
@@ -651,6 +684,7 @@ public class SpringApplication {
 		if (logger.isDebugEnabled()) {
 			logger.debug("Loading source " + StringUtils.arrayToCommaDelimitedString(sources));
 		}
+		// BeanDefinitionLoader 根据配置加载所有BeanDefinition
 		BeanDefinitionLoader loader = createBeanDefinitionLoader(getBeanDefinitionRegistry(context), sources);
 		if (this.beanNameGenerator != null) {
 			loader.setBeanNameGenerator(this.beanNameGenerator);
